@@ -1,0 +1,48 @@
+body {
+  background-color: #0f172a;
+  color: white;
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+.font-display { font-family: 'Orbitron', sans-serif; }
+.glow-text { text-shadow: 0 0 10px rgba(0, 229, 255, 0.7); }
+.glow-box { box-shadow: 0 0 20px rgba(0, 229, 255, 0.2); }
+
+.screen {
+  display: none;
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.screen.active { 
+  display: flex; 
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-fast {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+.animate-accept { animation: pulse-fast 0.5s infinite; }
+
+#drop-zone.dragover {
+  border-color: #00e5ff;
+  background-color: rgba(0, 229, 255, 0.05);
+}
+
+#emulator-screen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  background: black;
+  z-index: 50;
+  flex-direction: column;
+}
