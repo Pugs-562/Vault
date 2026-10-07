@@ -1,7 +1,35 @@
-let romFile = null;
-let romUrl = null;
-let currentTitle = "";
+// --- IndexedDB Operations ---
+const DB_NAME = 'N64EmulatorDB';
+const STORE_NAME = 'roms';
 
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveRomToDB(file) {
+  const db = await openDB();
+  const buffer = await file.arrayBuffer();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const data = { name: file.name, buffer: buffer };
+    const req = store.put(data, 'active_rom');
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// --- UI Logic ---
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const screenUpload = document.getElementById('upload-screen');
@@ -9,8 +37,10 @@ const screenAccepted = document.getElementById('accepted-screen');
 const screenHome = document.getElementById('home-screen');
 const screenEmulator = document.getElementById('emulator-screen');
 const btnPlay = document.getElementById('btn-play');
+const emuFrame = document.getElementById('emulator-frame');
 
-// --- File Handling ---
+let currentTitle = "";
+
 dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
 dropZone.addEventListener('drop', (e) => {
@@ -23,19 +53,19 @@ fileInput.addEventListener('change', (e) => {
   if (e.target.files.length > 0) processFile(e.target.files[0]);
 });
 
-function processFile(file) {
-  if (romUrl) URL.revokeObjectURL(romUrl);
-  romFile = file;
-  romUrl = URL.createObjectURL(file);
-  const filename = file.name;
-  currentTitle = filename.replace(/\.[^.]+$/, "");
+async function processFile(file) {
+  currentTitle = file.name.replace(/\.[^.]+$/, "");
   
-  document.getElementById('accepted-filename').innerText = filename;
+  document.getElementById('accepted-filename').innerText = file.name;
   document.getElementById('game-title').innerText = currentTitle;
   document.getElementById('active-game-title').innerText = currentTitle;
 
+  // Persist raw binary into IndexedDB
+  await saveRomToDB(file);
+
   switchScreen(screenAccepted);
-  loadBoxArt(filename);
+  loadBoxArt(file.name);
+
   setTimeout(() => switchScreen(screenHome), 1200);
 }
 
@@ -44,7 +74,7 @@ function switchScreen(activeScreen) {
   activeScreen.classList.add('active');
 }
 
-// --- Box Art Fetcher ---
+// --- Libretro Box Art Finder ---
 async function loadBoxArt(filename) {
   const stem = filename.replace(/\.[^.]+$/, "");
   const base = stem.split(/[\(\[]/)[0].trim();
@@ -66,61 +96,14 @@ async function loadBoxArt(filename) {
   }
 }
 
-// --- THE FIX: Iframe Emulator Boot ---
+// --- Launch Emulator Frame ---
 btnPlay.addEventListener('click', () => {
-  if (!romUrl) return;
   switchScreen(screenEmulator);
-  
-  const container = document.getElementById('game-container');
-  container.innerHTML = ''; // Clear previous instances
-
-  // 1. Create a pristine iframe so EmulatorJS can calculate window height properly
-  const iframe = document.createElement('iframe');
-  iframe.style.width = '100%';
-  iframe.style.height = '100%';
-  iframe.style.border = 'none';
-  iframe.allow = "autoplay; gamepad; microphone; fullscreen";
-  container.appendChild(iframe);
-
-  // 2. Inject the Emulator code directly into the iframe document
-  const doc = iframe.contentWindow.document;
-  const safeTitle = currentTitle.replace(/'/g, "\\'").replace(/"/g, '\\"');
-
-  const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }</style>
-    </head>
-    <body>
-      <div id="game" style="width: 100%; height: 100%;"></div>
-      <script>
-        window.EJS_player = '#game';
-        window.EJS_core = 'n64';
-        window.EJS_gameUrl = '${romUrl}';
-        window.EJS_gameName = '${safeTitle}';
-        window.EJS_pathtodata = 'https://cdn.emulatorjs.org/stable/data/';
-        window.EJS_color = '#00e5ff';
-        window.EJS_startOnLoaded = true;
-        
-        window.EJS_buttons = {
-          playCounter: false, settings: true, fullscreen: true, saveState: true, 
-          loadState: true, gamepad: true, cheat: true, volume: true, 
-          quickSave: true, quickLoad: true, screenshot: true, restart: true
-        };
-      <\/script>
-      <script src="https://cdn.emulatorjs.org/stable/data/loader.js"><\/script>
-    </body>
-    </html>
-  `;
-  
-  doc.open();
-  doc.write(html);
-  doc.close();
+  // Point the iframe to emulator.html which reads the IndexedDB store
+  emuFrame.src = 'emulator.html';
 });
 
 function exitEmulator() {
-  document.getElementById('game-container').innerHTML = '';
+  emuFrame.src = 'about:blank';
   switchScreen(screenHome);
 }
