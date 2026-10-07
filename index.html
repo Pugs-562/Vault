@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>N64 Web Emulator</title>
+  
+  <!-- Critical: Enables Cross-Origin Isolation on GitHub Pages -->
+  <script src="coi-serviceworker.js"></script>
+
+  <!-- Tailwind CSS & Fonts -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      background-color: #0f172a;
+      color: white;
+      font-family: 'Inter', sans-serif;
+      overflow-x: hidden;
+    }
+    .font-display { font-family: 'Orbitron', sans-serif; }
+    .glow-text { text-shadow: 0 0 10px rgba(0, 229, 255, 0.7); }
+    .glow-box { box-shadow: 0 0 20px rgba(0, 229, 255, 0.2); }
+    
+    .screen {
+      display: none;
+      animation: fadeIn 0.4s ease-out forwards;
+    }
+    .screen.active { display: flex; }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes pulse-fast {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.8; transform: scale(1.05); }
+    }
+    .animate-accept { animation: pulse-fast 0.5s infinite; }
+
+    #drop-zone.dragover {
+      border-color: #00e5ff;
+      background-color: rgba(0, 229, 255, 0.05);
+    }
+
+    #emulator-screen {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      background: black;
+      z-index: 50;
+      flex-direction: column;
+    }
+    #game-container {
+      width: 100%;
+      height: 100%;
+      flex: 1;
+      position: relative;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center relative select-none">
+
+  <!-- SCREEN 1: UPLOAD ROM -->
+  <div id="upload-screen" class="screen active flex-col items-center justify-center w-full max-w-2xl p-6 text-center">
+    <h1 class="font-display text-4xl font-bold mb-2 text-[#00e5ff] glow-text">NINTENDO 64</h1>
+    <p class="text-slate-400 mb-8">Web System Emulator</p>
+    
+    <div id="drop-zone" class="w-full h-64 border-2 border-dashed border-slate-600 rounded-2xl flex flex-col items-center justify-center transition-all cursor-pointer hover:border-[#00e5ff] hover:bg-slate-800/50">
+      <svg class="w-12 h-12 text-slate-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+      <p class="text-lg font-semibold text-slate-200">Drag & Drop your N64 ROM here</p>
+      <p class="text-sm text-slate-500 mt-2">Supports .z64, .n64, .v64</p>
+      <input type="file" id="file-input" class="hidden" accept=".z64,.n64,.v64" />
+    </div>
+    <button onclick="document.getElementById('file-input').click()" class="mt-6 px-6 py-3 bg-slate-800 hover:bg-slate-700 text-[#00e5ff] font-display font-bold rounded-lg transition-colors border border-slate-700 hover:border-[#00e5ff]">
+      BROWSE FILES
+    </button>
+  </div>
+
+  <!-- SCREEN 2: ACCEPTED TRANSITION -->
+  <div id="accepted-screen" class="screen flex-col items-center justify-center w-full h-full absolute inset-0 bg-[#0f172a] z-10">
+    <h2 class="font-display text-5xl font-bold text-[#00e5ff] glow-text animate-accept tracking-widest">ROM ACCEPTED</h2>
+    <p id="accepted-filename" class="mt-4 text-slate-400 font-mono"></p>
+  </div>
+
+  <!-- SCREEN 3: HOME MENU -->
+  <div id="home-screen" class="screen flex-col items-center justify-center w-full max-w-4xl p-6">
+    <div class="w-full flex justify-between items-center mb-8 border-b border-slate-800 pb-4">
+      <h2 class="font-display text-2xl text-slate-300">HOME MENU</h2>
+      <div class="flex gap-2">
+        <div class="w-3 h-3 rounded-full bg-slate-600"></div>
+        <div class="w-3 h-3 rounded-full bg-slate-600"></div>
+        <div class="w-3 h-3 rounded-full bg-[#00e5ff] glow-box"></div>
+      </div>
+    </div>
+
+    <div class="flex flex-col md:flex-row gap-8 items-center bg-slate-800/40 p-8 rounded-2xl border border-slate-700 w-full backdrop-blur-sm mb-6">
+      <div class="w-48 h-64 shrink-0 bg-black rounded-lg border-2 border-slate-600 flex items-center justify-center overflow-hidden relative shadow-2xl">
+        <img id="game-boxart" src="" alt="Box Art" class="w-full h-full object-cover hidden" />
+        <div id="boxart-fallback" class="font-display text-2xl text-slate-600 tracking-widest">N64</div>
+      </div>
+      
+      <div class="flex flex-col flex-1">
+        <p class="text-[#00e5ff] font-mono text-sm mb-1">READY TO PLAY</p>
+        <h3 id="game-title" class="text-3xl font-bold text-white mb-2 break-all"></h3>
+        <p class="text-slate-400 mb-6 max-w-lg">Core: Mupen64Plus. Controls and settings are integrated into the lower toolbar.</p>
+        
+        <button id="btn-play" class="px-8 py-4 bg-[#00e5ff] hover:bg-[#00cce6] text-black font-display font-bold text-xl rounded-lg transition-transform hover:scale-105 active:scale-95 shadow-[0_0_20px_rgba(0,229,255,0.4)] max-w-xs flex items-center justify-center gap-3">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path d="M4 4l12 6-12 6z"></path></svg>
+          START GAME
+        </button>
+      </div>
+    </div>
+
+    <div class="w-full bg-slate-800/20 border border-slate-700/60 rounded-xl p-4 text-xs text-slate-400">
+      <h4 class="font-display text-[#00e5ff] mb-2 text-sm">DEFAULT KEYBOARD CONTROLS</h4>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div><span class="text-white font-mono">Analog Stick:</span> Arrow Keys</div>
+        <div><span class="text-white font-mono">A Button:</span> X / Z</div>
+        <div><span class="text-white font-mono">B Button:</span> C / S</div>
+        <div><span class="text-white font-mono">Z Trigger:</span> Space / Shift</div>
+        <div><span class="text-white font-mono">Start:</span> Enter</div>
+        <div><span class="text-white font-mono">L / R Bumper:</span> Q / E</div>
+        <div><span class="text-white font-mono">C-Buttons:</span> I, J, K, L</div>
+        <div><span class="text-white font-mono">Gamepad:</span> Plug & Play</div>
+      </div>
+    </div>
+    
+    <button onclick="location.reload()" class="mt-6 text-slate-500 hover:text-white transition-colors underline text-sm">
+      Load a different ROM
+    </button>
+  </div>
+
+  <!-- SCREEN 4: EMULATOR -->
+  <div id="emulator-screen" class="screen">
+    <div class="w-full bg-slate-900/90 border-b border-slate-800 px-4 py-2 flex justify-between items-center z-50 shrink-0">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-[#00e5ff] animate-ping"></span>
+        <span id="active-game-title" class="font-display text-sm text-[#00e5ff] truncate max-w-xs"></span>
+      </div>
+      <button onclick="exitEmulator()" class="px-3 py-1 bg-red-600/80 hover:bg-red-600 text-white font-display text-xs rounded transition-colors">
+        EXIT GAME
+      </button>
+    </div>
+
+    <div id="game-container"></div>
+  </div>
+
+  <!-- Main Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
